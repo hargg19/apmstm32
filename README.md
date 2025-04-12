@@ -1,1 +1,1 @@
-# apmstm32
+# segger tes apm32 to stm32
