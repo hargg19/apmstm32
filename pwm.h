@@ -3,15 +3,15 @@
 
 #include "stm32f10x.h"
 
-// Channel Definitions
+// Definisi channel manual jika CMSIS tidak menyediakan
 typedef enum {
-    PWM_HEATER_T12 = 0,  // PA8 - TIM1_CH1
-    PWM_HEATER_HAIR,     // PA9 - TIM1_CH2
-    PWM_FAN             // PA10 - TIM1_CH3
+    PWM_CH1 = 0x00,  // TIM_Channel_1 (PA8)
+    PWM_CH2 = 0x01,  // TIM_Channel_2 (PA9)
+    PWM_CH3 = 0x02   // TIM_Channel_3 (PA10)
 } PWM_Channel;
 
-void PWM_Init(void);
-void PWM_SetDuty(PWM_Channel ch, uint16_t duty); // duty: 0-1000 (0-100%)
+void PWM_Init(uint32_t freq_hz, uint16_t resolution);
+void PWM_SetDuty(PWM_Channel ch, float duty);
 void PWM_Enable(PWM_Channel ch);
 void PWM_Disable(PWM_Channel ch);
 
