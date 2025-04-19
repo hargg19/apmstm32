@@ -1,4 +1,4 @@
-#include "onofftrigger.h"
+#include "stm32f10x.h"
 
 // Variabel untuk status on/off
 static volatile uint8_t onoff1 = 0; // Default off
@@ -7,64 +7,58 @@ static volatile uint8_t onoff2 = 0; // Default off
 // Fungsi inisialisasi pin PB10 dan PB11 sebagai interrupt
 void OnOffTrigger_Init(void) {
     // Aktifkan clock untuk GPIOB dan AFIO
-    RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB | RCC_APB2Periph_AFIO, ENABLE);
+    RCC->APB2ENR |= RCC_APB2ENR_IOPBEN | RCC_APB2ENR_AFIOEN;
 
     // Konfigurasi pin PB10 dan PB11 sebagai input pull-up
-    GPIO_InitTypeDef GPIO_InitStructure;
-    GPIO_InitStructure.GPIO_Pin = GPIO_Pin_10 | GPIO_Pin_11;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IPU; // Input dengan pull-up internal
-    GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
-    GPIO_Init(GPIOB, &GPIO_InitStructure);
+    GPIOB->CRH &= ~(GPIO_CRH_MODE10 | GPIO_CRH_MODE11); // Set MODE = 00 (Input)
+    GPIOB->CRH |= GPIO_CRH_CNF10_1 | GPIO_CRH_CNF11_1;  // Set CNF = 10 (Input pull-up)
+    GPIOB->ODR |= GPIO_ODR_ODR10 | GPIO_ODR_ODR11;      // Pull-up enable
 
     // Konfigurasi interrupt eksternal untuk PB10 dan PB11
-    GPIO_EXTILineConfig(GPIO_PortSourceGPIOB, GPIO_PinSource10); // PB10
-    GPIO_EXTILineConfig(GPIO_PortSourceGPIOB, GPIO_PinSource11); // PB11
+    AFIO->EXTICR[2] &= ~(AFIO_EXTICR3_EXTI10 | AFIO_EXTICR3_EXTI11);
+    AFIO->EXTICR[2] |= AFIO_EXTICR3_EXTI10_PB | AFIO_EXTICR3_EXTI11_PB;
 
     // Atur EXTI untuk PB10
-    EXTI_InitTypeDef EXTI_InitStructure;
-    EXTI_InitStructure.EXTI_Line = EXTI_Line10;
-    EXTI_InitStructure.EXTI_Mode = EXTI_Mode_Interrupt;
-    EXTI_InitStructure.EXTI_Trigger = EXTI_Trigger_Rising_Falling; // Both edges
-    EXTI_InitStructure.EXTI_LineCmd = ENABLE;
-    EXTI_Init(&EXTI_InitStructure);
+    EXTI->IMR |= EXTI_IMR_MR10;         // Unmask EXTI Line 10
+    EXTI->EMR &= ~EXTI_EMR_MR10;        // Mask event
+    EXTI->RTSR |= EXTI_RTSR_TR10;       // Trigger rising edge
+    EXTI->FTSR |= EXTI_FTSR_TR10;       // Trigger falling edge
 
     // Atur EXTI untuk PB11
-    EXTI_InitStructure.EXTI_Line = EXTI_Line11;
-    EXTI_Init(&EXTI_InitStructure);
+    EXTI->IMR |= EXTI_IMR_MR11;         // Unmask EXTI Line 11
+    EXTI->EMR &= ~EXTI_EMR_MR11;        // Mask event
+    EXTI->RTSR |= EXTI_RTSR_TR11;       // Trigger rising edge
+    EXTI->FTSR |= EXTI_FTSR_TR11;       // Trigger falling edge
 
-    // Aktifkan interrupt di NVIC
-    NVIC_InitTypeDef NVIC_InitStructure;
-    NVIC_InitStructure.NVIC_IRQChannel = EXTI15_10_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 0;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority = 0;
-    NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
+    // Konfigurasi NVIC untuk EXTI Line 10-15
+    NVIC_SetPriority(EXTI15_10_IRQn, 0); // Prioritas interrupt
+    NVIC_EnableIRQ(EXTI15_10_IRQn);      // Aktifkan interrupt
 }
 
 // Fungsi interrupt handler untuk EXTI line 10-15
 void EXTI15_10_IRQHandler(void) {
     // Periksa apakah interrupt terjadi pada PB10
-    if (EXTI_GetITStatus(EXTI_Line10) != RESET) {
+    if (EXTI->PR & EXTI_PR_PR10) {
         // Toggle status onoff1 berdasarkan level pin
-        if (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_10)) {
+        if (GPIOB->IDR & GPIO_IDR_IDR10) {
             onoff1 = 1; // High = ON
         } else {
             onoff1 = 0; // Low = OFF
         }
         // Clear interrupt flag
-        EXTI_ClearITPendingBit(EXTI_Line10);
+        EXTI->PR = EXTI_PR_PR10;
     }
 
     // Periksa apakah interrupt terjadi pada PB11
-    if (EXTI_GetITStatus(EXTI_Line11) != RESET) {
+    if (EXTI->PR & EXTI_PR_PR11) {
         // Toggle status onoff2 berdasarkan level pin
-        if (GPIO_ReadInputDataBit(GPIOB, GPIO_Pin_11)) {
+        if (GPIOB->IDR & GPIO_IDR_IDR11) {
             onoff2 = 1; // High = ON
         } else {
             onoff2 = 0; // Low = OFF
         }
         // Clear interrupt flag
-        EXTI_ClearITPendingBit(EXTI_Line11);
+        EXTI->PR = EXTI_PR_PR11;
     }
 }
 
