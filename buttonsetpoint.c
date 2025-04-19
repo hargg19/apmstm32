@@ -53,3 +53,13 @@ int ButtonSetpoint_GetSetpoint1(void) {
 int ButtonSetpoint_GetSetpoint2(void) {
     return setpoint2;
 }
+
+// Fungsi untuk memeriksa apakah tombol T12 ditekan
+int ButtonSetpoint_T12Pressed(void) {
+    return (GPIOA->IDR & GPIO_IDR_IDR11) || (GPIOA->IDR & GPIO_IDR_IDR12);
+}
+
+// Fungsi untuk memeriksa apakah tombol JBC ditekan
+int ButtonSetpoint_JBCPressed(void) {
+    return (GPIOA->IDR & GPIO_IDR_IDR15) || (GPIOB->IDR & GPIO_IDR_IDR3);
+}
