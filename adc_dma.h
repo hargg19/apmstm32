@@ -2,15 +2,15 @@
 #define ADC_DMA_H
 
 #include <stdint.h>
-#include "stm32f10x.h"
 
-// Buffer untuk menyimpan hasil ADC (2 channel: PA0 & PA1)
-#define ADC_BUFFER_SIZE  2
-extern volatile uint16_t adc_buffer[ADC_BUFFER_SIZE];
+// Inisialisasi ADC dengan DMA
+void adc_dma_init(void);
 
-// Fungsi Inisialisasi
-void ADC_DMA_Init(void);
-uint16_t ADC_Read_PA0(void);
-uint16_t ADC_Read_PA1(void);
+// Fungsi untuk mendapatkan nilai suhu (dalam °C)
+float adc_get_temperature1(void); // Sensor suhu 1 (PA0)
+float adc_get_temperature2(void); // Sensor suhu 2 (PA2)
+
+// Fungsi untuk mendapatkan nilai suhu ambient dari NTC (PA1)
+float adc_get_ambient_temperature(void);
 
 #endif // ADC_DMA_H
