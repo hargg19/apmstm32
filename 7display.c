@@ -1,173 +1,116 @@
+#include "stm32f10x.h"
 #include "7display.h"
-#include "delay.h"  // Pastikan delay.h sudah diimplementasikan
 
-// Tabel karakter (0-9, A-F, '-', '_')
-static const uint8_t charTable[] = {
-    0x7E, // 0
-    0x30, // 1
-    0x6D, // 2
-    0x79, // 3
-    0x33, // 4
-    0x5B, // 5
-    0x5F, // 6
-    0x70, // 7
-    0x7F, // 8
-    0x7B, // 9
-    0x77, // A
-    0x1F, // b
-    0x4E, // C
-    0x3D, // d
-    0x4F, // E
-    0x47, // F
-    0x01, // -
-    0x00, // (kosong)
-    0x40, // (tanda minus)
-    0x08  // underscore
+// Define MAX7219 commands
+#define MAX7219_REG_NOOP        0x00
+#define MAX7219_REG_DIGIT0      0x01
+#define MAX7219_REG_DIGIT1      0x02
+#define MAX7219_REG_DIGIT2      0x03
+#define MAX7219_REG_DIGIT3      0x04
+#define MAX7219_REG_DIGIT4      0x05
+#define MAX7219_REG_DIGIT5      0x06
+#define MAX7219_REG_DIGIT6      0x07
+#define MAX7219_REG_DIGIT7      0x08
+#define MAX7219_REG_DECODEMODE  0x09
+#define MAX7219_REG_INTENSITY   0x0A
+#define MAX7219_REG_SCANLIMIT   0x0B
+#define MAX7219_REG_SHUTDOWN    0x0C
+#define MAX7219_REG_DISPLAYTEST 0x0F
+
+// Character table for 7-segment display (0-9 and some letters)
+static const uint8_t char_table[] = {
+    0x7E, //0 0
+    0x30, //1 1
+    0x6D, //2 2
+    0x79, //3 3
+    0x33, //4 4
+    0x5B, //5 5
+    0x5F, //6 6
+    0x70, //7 7
+    0x7F, //8 8
+    0x7B, //9 9
+    0x37, //10 H
+    0x4F, //11 E
+    0x0E, //12 L
+    0x4E, //13 C
+    0x63, //14 degree
+    0x00, //15 blank
+    0x01, //16 -
+    0x08, //17 _
 };
 
-// Inisialisasi GPIO untuk SPI (bit-bang)
-static void GPIO_Config(void) {
-    // Aktifkan clock GPIOB
+// GPIO Pin Definitions
+#define DIN_PIN   GPIO_BSRR_BS12 // PB12
+#define CS_PIN    GPIO_BSRR_BS13 // PB13
+#define CLK_PIN   GPIO_BSRR_BS14 // PB14
+
+#define DIN_LOW   GPIOB->BSRR = GPIO_BSRR_BR12
+#define DIN_HIGH  GPIOB->BSRR = DIN_PIN
+#define CS_LOW    GPIOB->BSRR = GPIO_BSRR_BR13
+#define CS_HIGH   GPIOB->BSRR = CS_PIN
+#define CLK_LOW   GPIOB->BSRR = GPIO_BSRR_BR14
+#define CLK_HIGH  GPIOB->BSRR = CLK_PIN
+
+// Send one bit of data
+static void MAX7219_SendBit(uint8_t bit) {
+    if (bit) {
+        DIN_HIGH; // Set DIN high
+    } else {
+        DIN_LOW; // Set DIN low
+    }
+    CLK_HIGH; // Set CLK high
+    __NOP();__NOP();__NOP(); // Small delay
+    CLK_LOW; // Set CLK low
+}
+
+// Send one byte of data
+static void MAX7219_SendByte(uint8_t data) {
+    for (int i = 7; i >= 0; i--) {
+        MAX7219_SendBit((data >> i) & 0x01);
+    }
+}
+
+// Send data to MAX7219
+void MAX7219_SendData(uint8_t address, uint8_t data) {
+    CS_LOW; // Pull CS low
+    MAX7219_SendByte(address); // Send address
+    MAX7219_SendByte(data); // Send data
+    CS_HIGH; // Pull CS high to latch data
+}
+
+// Initialize MAX7219
+void MAX7219_Init(void) {
+    // Enable GPIOB clock
     RCC->APB2ENR |= RCC_APB2ENR_IOPBEN;
-    
-    // Konfigurasi PB12 (DIN), PB13 (CS), PB14 (CLK) sebagai output push-pull, 50MHz
-    // CRH (Pin 8-15), CNF=00 (Push-Pull), MODE=11 (50MHz)
-    MAX7219_PORT->CRH &= ~(
-        (0xF << (4*(MAX7219_DIN_PIN-8)) | 
-        (0xF << (4*(MAX7219_CS_PIN-8))) | 
-        (0xF << (4*(MAX7219_CLK_PIN-8)))
-    );
-    
-    MAX7219_PORT->CRH |= (
-        (0x3 << (4*(MAX7219_DIN_PIN-8))) | 
-        (0x3 << (4*(MAX7219_CS_PIN-8))) | 
-        (0x3 << (4*(MAX7219_CLK_PIN-8)))
-    );
-    
-    // Set CS high, CLK low
-    MAX7219_PORT->BSRR = (1 << MAX7219_CS_PIN);
-    MAX7219_PORT->BRR  = (1 << MAX7219_CLK_PIN);
+
+    // Configure PB12 (DIN), PB13 (CS), and PB14 (CLK) as output push-pull
+    GPIOB->CRH &= ~(GPIO_CRH_CNF12 | GPIO_CRH_MODE12 |
+                    GPIO_CRH_CNF13 | GPIO_CRH_MODE13 |
+                    GPIO_CRH_CNF14 | GPIO_CRH_MODE14);
+
+    GPIOB->CRH |= (GPIO_CRH_MODE12_1 | GPIO_CRH_MODE13_1 | GPIO_CRH_MODE14_1);
+
+    // Initialize MAX7219
+    MAX7219_SendData(MAX7219_REG_SHUTDOWN, 0x01);    // Shutdown mode off
+    MAX7219_SendData(MAX7219_REG_DECODEMODE, 0x00);  // No decode mode
+    MAX7219_SendData(MAX7219_REG_SCANLIMIT, 0x07);   // Scan all digits (0-7)
+    MAX7219_SendData(MAX7219_REG_INTENSITY, 0x08);   // Medium intensity
+    MAX7219_SendData(MAX7219_REG_DISPLAYTEST, 0x00); // Display test off
+
+    // Clear display
+    MAX7219_Clear();
 }
 
-// Fungsi SPI 16-bit (bit-bang)
-static void SPI_Send16(uint16_t data) {
-    // CS low
-    MAX7219_PORT->BRR = (1 << MAX7219_CS_PIN);
-    
-    // Kirim 16-bit data (MSB first)
-    for(uint8_t i = 16; i > 0; i--) {
-        // Set DIN berdasarkan bit
-        if(data & (1 << (i-1)))
-            MAX7219_PORT->BSRR = (1 << MAX7219_DIN_PIN);
-        else
-            MAX7219_PORT->BRR = (1 << MAX7219_DIN_PIN);
-        
-        // Clock pulse (rising edge)
-        MAX7219_PORT->BSRR = (1 << MAX7219_CLK_PIN);
-        delay_us(1);
-        MAX7219_PORT->BRR = (1 << MAX7219_CLK_PIN);
-        delay_us(1);
-    }
-    
-    // CS high
-    MAX7219_PORT->BSRR = (1 << MAX7219_CS_PIN);
-}
-
-// Inisialisasi MAX7219
-void SevenSegment_Init(void) {
-    GPIO_Config();
-    
-    // Konfigurasi MAX7219
-    SevenSegment_Write(MAX7219_SCAN_LIMIT, 7);   // Scan semua 8 digit
-    SevenSegment_Write(MAX7219_DECODE, 0xFF);    // Decode semua digit
-    SevenSegment_Write(MAX7219_INTENSITY, 0x07); // Kecerahan medium
-    SevenSegment_Write(MAX7219_SHUTDOWN, 0x01);  // Mode normal (tidak shutdown)
-    SevenSegment_Clear();
-}
-
-// Tulis data ke register MAX7219
-void SevenSegment_Write(uint8_t address, uint8_t data) {
-    SPI_Send16(((uint16_t)address << 8) | data);
-}
-
-// Tampilkan angka (positif/negatif)
-void SevenSegment_DisplayNumber(int32_t number) {
-    uint8_t isNegative = 0;
-    uint8_t digits[8] = {0};
-    uint8_t i = 0;
-    
-    if(number < 0) {
-        isNegative = 1;
-        number = -number;
-    }
-    
-    // Ekstrak digit
-    do {
-        digits[i++] = number % 10;
-        number /= 10;
-    } while(number > 0 && i < 8);
-    
-    // Tampilkan digit (dari kanan ke kiri)
-    for(uint8_t pos = 0; pos < 8; pos++) {
-        if(pos < i) {
-            SevenSegment_Write(MAX7219_DIGIT0 + pos, digits[pos]);
-        } else if(pos == i && isNegative) {
-            SevenSegment_Write(MAX7219_DIGIT0 + pos, 0x40); // Tanda minus
-        } else {
-            SevenSegment_Write(MAX7219_DIGIT0 + pos, 0x00); // Kosong
-        }
+// Clear the display
+void MAX7219_Clear(void) {
+    for (uint8_t i = 0; i < 8; i++) {
+        MAX7219_SendData(MAX7219_REG_DIGIT0 + i, 0x00);
     }
 }
 
-// Tampilkan string (0-9, A-F, a-f, '-', '_')
-void SevenSegment_DisplayString(const char* str) {
-    uint8_t length = 0;
-    const char* ptr = str;
-    
-    // Hitung panjang string (maks 8 karakter)
-    while(*ptr && length < 8) {
-        length++;
-        ptr++;
+// Display a single character on a specific position (0-7)
+void MAX7219_DisplayChar(uint8_t position, uint8_t character) {
+    if (position < 8 && character < sizeof(char_table)) {
+        MAX7219_SendData(MAX7219_REG_DIGIT0 + position, char_table[character]);
     }
-    
-    // Tampilkan karakter (dari kanan ke kiri)
-    for(uint8_t pos = 0; pos < 8; pos++) {
-        if(pos < length) {
-            char c = str[length - 1 - pos]; // Urutan terbalik
-            
-            if(c >= '0' && c <= '9') {
-                SevenSegment_Write(MAX7219_DIGIT0 + pos, c - '0');
-            } else if(c >= 'A' && c <= 'F') {
-                SevenSegment_Write(MAX7219_DIGIT0 + pos, 0x0A + (c - 'A'));
-            } else if(c >= 'a' && c <= 'f') {
-                SevenSegment_Write(MAX7219_DIGIT0 + pos, 0x0A + (c - 'a'));
-            } else if(c == '-') {
-                SevenSegment_Write(MAX7219_DIGIT0 + pos, 0x40);
-            } else if(c == '_') {
-                SevenSegment_Write(MAX7219_DIGIT0 + pos, 0x08);
-            } else {
-                SevenSegment_Write(MAX7219_DIGIT0 + pos, 0x00); // Kosong
-            }
-        } else {
-            SevenSegment_Write(MAX7219_DIGIT0 + pos, 0x00); // Kosong
-        }
-    }
-}
-
-// Atur kecerahan (0-15)
-void SevenSegment_SetBrightness(uint8_t brightness) {
-    if(brightness > 15) brightness = 15;
-    SevenSegment_Write(MAX7219_INTENSITY, brightness);
-}
-
-// Bersihkan display
-void SevenSegment_Clear(void) {
-    for(uint8_t i = 0; i < 8; i++) {
-        SevenSegment_Write(MAX7219_DIGIT0 + i, 0x00);
-    }
-}
-
-// Mode test (semua segmen menyala)
-void SevenSegment_TestMode(uint8_t enable) {
-    SevenSegment_Write(MAX7219_TEST, enable ? 0x01 : 0x00);
 }
